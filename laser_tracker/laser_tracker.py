@@ -3,12 +3,14 @@ import sys
 import argparse
 import cv2
 import numpy
+import random
+import math
 
 
 class LaserTracker(object):
 
-    def __init__(self, cam_width=640, cam_height=480, hue_min=20, hue_max=160,
-                 sat_min=100, sat_max=255, val_min=200, val_max=256,
+    def __init__(self, cam_width=1280, cam_height=720, hue_min=100, hue_max=160,
+                 sat_min=200, sat_max=255, val_min=100, val_max=256,
                  display_thresholds=False):
         """
         * ``cam_width`` x ``cam_height`` -- This should be the size of the
@@ -50,6 +52,11 @@ class LaserTracker(object):
         self.previous_position = None
         self.trail = numpy.zeros((self.cam_height, self.cam_width, 3),
                                  numpy.uint8)
+
+        self.circleHit = True
+        self.circlePos = 0, 0
+        self.laserPos  = 0, 0
+        self.circleR   = 30
 
     def create_and_position_window(self, name, xpos, ypos):
         """Creates a named widow placing it on the screen at (xpos, ypos)."""
@@ -130,7 +137,7 @@ class LaserTracker(object):
             # is split
             self.channels['hue'] = cv2.bitwise_not(self.channels['hue'])
 
-    def track(self, frame, mask):
+    def track(self, frame, mask, dispBG):
         """
         Track the position of the laser pointer.
 
@@ -153,24 +160,53 @@ class LaserTracker(object):
             if moments["m00"] > 0:
                 center = int(moments["m10"] / moments["m00"]), \
                          int(moments["m01"] / moments["m00"])
+                self.laserPos = center
             else:
                 center = int(x), int(y)
+                self.laserPos = center
 
             # only proceed if the radius meets a minimum size
-            if radius > 10:
+            if radius > 4:
                 # draw the circle and centroid on the frame,
-                cv2.circle(frame, (int(x), int(y)), int(radius),
+                #cv2.circle(frame, (int(x), int(y)), int(radius),
+                           #(0, 255, 255), 2)
+                cv2.circle(frame, (int(x), int(y)), 7,
                            (0, 255, 255), 2)
                 cv2.circle(frame, center, 5, (0, 0, 255), -1)
+
+                cv2.circle(dispBG, (int(x), int(y)), 7,
+                           (0, 255, 255), 2)
+
                 # then update the ponter trail
+                """
                 if self.previous_position:
                     cv2.line(self.trail, self.previous_position, center,
                              (255, 255, 255), 2)
+                """
 
         cv2.add(self.trail, frame, frame)
         self.previous_position = center
 
-    def detect(self, frame):
+
+    def addObject(self, frame, dispBG):
+
+        if self.circleHit:
+            self.circleR = random.randint(25,40)
+            self.circlePos = random.randint(30,self.cam_width-30), random.randint(30,self.cam_height-30)
+            self.circleHit = False
+
+        cv2.circle(frame, self.circlePos, self.circleR, (0, 255, 0), -1)
+        cv2.circle(dispBG, self.circlePos, self.circleR, (0, 255, 0), -1)
+
+        if math.sqrt((self.circlePos[0] - self.laserPos[0])**2 + (self.circlePos[1] - self.laserPos[1])**2) <= self.circleR:
+            self.circleHit = True
+            # print "TRUEEEEE - r = " + str(math.sqrt((self.circlePos[0] - self.laserPos[0])**2 + (self.circlePos[1] - self.laserPos[1])**2))
+
+        # print "circ x " + str(self.circlePos[0]) + " circ y " + str(self.circlePos[1])
+        # print "lase x " + str(self.laserPos[0]) + " lase y " + str(self.laserPos[1])
+
+
+    def detect(self, frame, dispBG):
         hsv_img = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         # split the video frame into color channels
@@ -201,16 +237,17 @@ class LaserTracker(object):
             self.channels['value'],
         ])
 
-        self.track(frame, self.channels['laser'])
+        self.track(frame, self.channels['laser'], dispBG)
 
         return hsv_image
 
-    def display(self, img, frame):
+    def display(self, img, frame, dispBG):
         """Display the combined image and (optionally) all other image channels
         NOTE: default color space in OpenCV is BGR.
         """
         cv2.imshow('RGB_VideoFrame', frame)
-        cv2.imshow('LaserPointer', self.channels['laser'])
+        cv2.imshow('Display', dispBG)
+        # cv2.imshow('LaserPointer', self.channels['laser'])
         if self.display_thresholds:
             cv2.imshow('Thresholded_HSV_Image', img)
             cv2.imshow('Hue', self.channels['hue'])
@@ -221,30 +258,34 @@ class LaserTracker(object):
         sys.stdout.write("Using OpenCV version: {0}\n".format(cv2.__version__))
 
         # create output windows
-        self.create_and_position_window('LaserPointer', 0, 0)
-        self.create_and_position_window('RGB_VideoFrame',
-                                        10 + self.cam_width, 0)
+        # self.create_and_position_window('LaserPointer', 0, 0)
+        self.create_and_position_window('RGB_VideoFrame',50 , 50)
+        self.create_and_position_window('Display', 50 + self.cam_width, 50)
         if self.display_thresholds:
             self.create_and_position_window('Thresholded_HSV_Image', 10, 10)
             self.create_and_position_window('Hue', 20, 20)
             self.create_and_position_window('Saturation', 30, 30)
             self.create_and_position_window('Value', 40, 40)
 
+
     def run(self):
         # Set up window positions
         self.setup_windows()
         # Set up the camera capture
         self.setup_camera_capture()
+        random.seed()
 
         while True:
             # 1. capture the current image
             success, frame = self.capture.read()
+            dispBG = numpy.zeros((self.cam_height, self.cam_width, 3), numpy.uint8)
             if not success:  # no image captured... end the processing
                 sys.stderr.write("Could not read camera frame. Quitting\n")
                 sys.exit(1)
 
-            hsv_image = self.detect(frame)
-            self.display(hsv_image, frame)
+            hsv_image = self.detect(frame, dispBG)
+            self.addObject(frame,dispBG)
+            self.display(hsv_image, frame, dispBG)
             self.handle_quit()
 
 
