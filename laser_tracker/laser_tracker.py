@@ -166,7 +166,7 @@ class LaserTracker(object):
                 self.laserPos = center
 
             # only proceed if the radius meets a minimum size
-            if radius > 4:
+            if radius > 2.5:
                 # draw the circle and centroid on the frame,
                 #cv2.circle(frame, (int(x), int(y)), int(radius),
                            #(0, 255, 255), 2)
@@ -278,7 +278,8 @@ class LaserTracker(object):
         while True:
             # 1. capture the current image
             success, frame = self.capture.read()
-            dispBG = numpy.zeros((self.cam_height, self.cam_width, 3), numpy.uint8)
+            # dispBG = numpy.zeros((self.cam_height, self.cam_width, 3), numpy.uint8)
+            dispBG = numpy.zeros((1080, 1920, 3), numpy.uint8)
             if not success:  # no image captured... end the processing
                 sys.stderr.write("Could not read camera frame. Quitting\n")
                 sys.exit(1)
